@@ -55,6 +55,10 @@
     <textarea id="f-body" class="f-body" placeholder="正文…想到什么写什么" rows="6"></textarea>
     <div class="fields">
       <label class="field">
+        <span>链接</span>
+        <input id="f-url" type="url" inputmode="url" placeholder="https://…（可选）" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="field">
         <span>分类</span>
         <input id="f-cat" type="text" list="cat-list" placeholder="生活 / 工作 / 想法…" maxlength="20" autocomplete="off">
       </label>
@@ -87,6 +91,9 @@
     <button class="menu-item" type="button" data-act="import">
       <span>导入备份</span><small>和现有记录合并，不会覆盖</small>
     </button>
+    <button class="menu-item" type="button" data-act="import-bookmarks">
+      <span>导入浏览器书签</span><small>选 Chrome 导出的 bookmarks.html</small>
+    </button>
     <button class="menu-item" type="button" data-act="sync">
       <span>立即同步</span><small>手机和电脑之间对一下</small>
     </button>
@@ -95,6 +102,7 @@
     </button>
     <p class="hint">数据存在电脑上的 notes-app/data/notes.json，随时可以复制走。</p>
     <input id="import-file" type="file" accept="application/json,.json" hidden>
+    <input id="bookmarks-file" type="file" accept=".html,text/html" hidden>
   </div>
 </div>
 

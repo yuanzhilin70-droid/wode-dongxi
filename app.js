@@ -19,6 +19,7 @@
     editor: $('#editor'),
     fTitle: $('#f-title'),
     fBody: $('#f-body'),
+    fUrl: $('#f-url'),
     fCat: $('#f-cat'),
     fTags: $('#f-tags'),
     fPin: $('#f-pin'),
@@ -28,6 +29,7 @@
     menu: $('#menu'),
     menuStat: $('#menu-stat'),
     importFile: $('#import-file'),
+    bookmarksFile: $('#bookmarks-file'),
     toast: $('#toast'),
   };
 
@@ -72,12 +74,35 @@
       id: String(it.id),
       title: String(it.title || ''),
       body: String(it.body || ''),
+      url: String(it.url || ''),
       cat: String(it.cat || '').trim(),
       tags: Array.isArray(it.tags) ? it.tags.map((t) => String(t).trim()).filter(Boolean) : [],
       pinned: Boolean(it.pinned),
       createdAt: Number(it.createdAt) || Date.now(),
       updatedAt: Number(it.updatedAt) || Number(it.createdAt) || Date.now(),
     };
+  }
+
+  function hostOf(url) {
+    try {
+      return new URL(url).hostname.replace(/^www\./, '');
+    } catch {
+      return '';
+    }
+  }
+
+  /** 把用户随手填的网址补全成合法链接，填得不像网址就返回空 */
+  function cleanUrl(v) {
+    const s = String(v || '').trim();
+    if (!s) return '';
+    const full = /^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : 'https://' + s;
+    try {
+      const u = new URL(full);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
+      return u.href;
+    } catch {
+      return '';
+    }
   }
 
   function merge(a, b) {
@@ -149,7 +174,9 @@
     });
     if (q) {
       list = list.filter((it) =>
-        (it.title + '\n' + it.body + '\n' + it.cat + '\n' + it.tags.join(' ')).toLowerCase().includes(q)
+        (it.title + '\n' + it.body + '\n' + (it.url || '') + '\n' + it.cat + '\n' + it.tags.join(' '))
+          .toLowerCase()
+          .includes(q)
       );
     }
     return list.sort((a, b) => {
@@ -183,10 +210,22 @@
     const title = it.title ? `<h2>${esc(it.title)}</h2>` : '';
     const body = it.body ? `<p class="body">${esc(it.body)}</p>` : '';
     const cat = it.cat ? `<span class="cat-pill">${esc(it.cat)}</span>` : '';
-    return `<div class="card" role="button" tabindex="0" data-id="${esc(it.id)}">
+    const host = it.url ? `<span class="host">${esc(hostOf(it.url))}</span>` : '';
+    const isLink = Boolean(it.url);
+    return `<div class="card${isLink ? ' has-url' : ''}" data-id="${esc(it.id)}"${
+      isLink ? '' : ' role="button" tabindex="0"'
+    }>
+      ${isLink ? `<a class="card-hit" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(it.title || it.url)}"></a>` : ''}
       ${it.pinned ? '<span class="pin-mark"></span>' : ''}
       ${title}${body}
-      <span class="meta">${cat}${tags}<span class="time">${fmtTime(it.updatedAt)}</span></span>
+      <span class="meta">${cat}${host}${tags}<span class="time">${fmtTime(it.updatedAt)}</span></span>
+      ${
+        isLink
+          ? `<button class="card-edit" type="button" data-edit="${esc(it.id)}" aria-label="编辑">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>
+            </button>`
+          : ''
+      }
     </div>`;
   }
 
@@ -200,7 +239,7 @@
     return `<div class="empty">
       <div class="big">还没有东西</div>
       <p>点右下角的 + ，记下第一条。</p>
-      <p>写完自动存在电脑上，手机上随时能看。</p>
+      <p>${localOnly ? '记录只存在这台设备上，偶尔导出备份更稳妥。' : '写完自动存在电脑上，手机上随时能看。'}</p>
     </div>`;
   }
 
@@ -253,6 +292,7 @@
 
     el.fTitle.value = it ? it.title : '';
     el.fBody.value = it ? it.body : '';
+    el.fUrl.value = it ? it.url || '' : '';
     el.fCat.value = it ? it.cat : state.filter.startsWith('cat:') ? state.filter.slice(4) : '';
     el.fTags.value = it ? it.tags.join(', ') : '';
     el.fPin.checked = it ? it.pinned : false;
@@ -267,7 +307,7 @@
   }
 
   function draftKey() {
-    return [el.fTitle.value, el.fBody.value, el.fCat.value, el.fTags.value, el.fPin.checked ? '1' : '0'].join('\u0001');
+    return [el.fTitle.value, el.fBody.value, el.fUrl.value, el.fCat.value, el.fTags.value, el.fPin.checked ? '1' : '0'].join('\u0001');
   }
 
   function closeEditor() {
@@ -284,6 +324,7 @@
     return {
       title: el.fTitle.value.trim(),
       body: el.fBody.value.replace(/\s+$/, ''),
+      url: cleanUrl(el.fUrl.value),
       cat: el.fCat.value.trim(),
       tags: el.fTags.value
         .split(/[,，、;；\s]+/)
@@ -309,6 +350,7 @@
       const same =
         cur.title === d.title &&
         cur.body === d.body &&
+        (cur.url || '') === d.url &&
         cur.cat === d.cat &&
         cur.pinned === d.pinned &&
         cur.tags.join('\u0001') === d.tags.join('\u0001');
@@ -355,6 +397,7 @@
     el.sync.hidden = true;
     const sbtn = el.menu.querySelector('[data-act="sync"]');
     if (sbtn) sbtn.hidden = true;
+    renderList(); // 空状态的文案要跟着换
     toast('记录只存在这台设备上');
   }
 
@@ -511,6 +554,101 @@
     reader.readAsText(file, 'utf-8');
   }
 
+  /* ------------------------------------------------------------ 浏览器书签 */
+
+  /** 解析 Chrome / Edge 导出的 bookmarks.html：文件夹名当分类，<A> 当条目
+   *  不用 DOM 树（浏览器的解析器会把 Netscape 书签格式的层级拆平），直接按标签顺序扫。
+   */
+  function parseBookmarks(text) {
+    const found = [];
+    const stack = [];
+    let pending = null;
+
+    const decode = (s) => {
+      const ta = document.createElement('textarea');
+      ta.innerHTML = s;
+      return ta.value;
+    };
+    const clean = (s) => decode(String(s).replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+
+    const re = /<h3\b[^>]*>([\s\S]*?)<\/h3>|<dl\b[^>]*>|<\/dl>|<a\b[^>]*?href\s*=\s*["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const raw = m[0];
+      if (/^<h3/i.test(raw)) {
+        pending = clean(m[1]);
+      } else if (/^<dl/i.test(raw)) {
+        stack.push(pending !== null ? pending : stack.length ? stack[stack.length - 1] : '');
+        pending = null;
+      } else if (/^<\/dl/i.test(raw)) {
+        stack.pop();
+        pending = null;
+      } else {
+        const url = decode(m[2] || '');
+        if (!/^https?:/i.test(url)) continue;
+        found.push({
+          title: clean(m[3] || ''),
+          url,
+          cat: stack.length ? stack[stack.length - 1] : '',
+        });
+      }
+    }
+    return found;
+  }
+
+  function importBookmarks(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      let list = [];
+      try {
+        list = parseBookmarks(String(reader.result));
+      } catch {
+        list = [];
+      }
+      if (!list.length) return toast('这个文件里没找到书签');
+
+      const seen = new Set(
+        Object.values(state.items)
+          .map((i) => (i.url || '').replace(/\/$/, ''))
+          .filter(Boolean)
+      );
+      const now = Date.now();
+      let added = 0;
+      let skipped = 0;
+      for (const b of list) {
+        const key = b.url.replace(/\/$/, '');
+        if (seen.has(key)) {
+          skipped += 1;
+          continue;
+        }
+        seen.add(key);
+        const id = newId();
+        state.items[id] = {
+          id,
+          title: b.title || hostOf(b.url),
+          body: '',
+          url: b.url,
+          cat: b.cat || '',
+          tags: [],
+          pinned: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        added += 1;
+      }
+      saveStore();
+      renderAll();
+      push();
+      closeSheet(el.menu);
+      toast(
+        added
+          ? `搬进来 ${added} 个书签${skipped ? `，跳过 ${skipped} 个重复的` : ''}`
+          : '这些书签都已经在里面了'
+      );
+    };
+    reader.readAsText(file, 'utf-8');
+  }
+
   /* ------------------------------------------------------------ 事件 */
 
   el.fab.addEventListener('click', () => openEditor(null));
@@ -522,6 +660,12 @@
         : state.offline
           ? '现在连不上电脑（改动已存在手机里）'
           : '已和电脑同步');
+    const hint = el.menu.querySelector('.hint');
+    if (hint) {
+      hint.textContent = localOnly
+        ? '记录只存在这台设备上。建议偶尔「导出备份」，存到网盘或发给自己。'
+        : '数据存在电脑上的 notes-app/data/notes.json，随时可以复制走。';
+    }
     openSheet(el.menu);
   });
 
@@ -533,14 +677,21 @@
   });
 
   el.list.addEventListener('click', (e) => {
+    const editBtn = e.target.closest('[data-edit]');
+    if (editBtn) {
+      openEditor(editBtn.dataset.edit);
+      return;
+    }
     const card = e.target.closest('.card');
-    if (card) openEditor(card.dataset.id);
+    if (!card) return;
+    if (card.classList.contains('has-url')) return; // 有链接的卡片交给 <a> 去打开
+    openEditor(card.dataset.id);
   });
 
   el.list.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const card = e.target.closest('.card');
-    if (!card) return;
+    if (!card || card.classList.contains('has-url')) return;
     e.preventDefault();
     openEditor(card.dataset.id);
   });
@@ -598,6 +749,7 @@
     if (name === 'menu-close') closeSheet(el.menu);
     if (name === 'export') exportBackup();
     if (name === 'import') el.importFile.click();
+    if (name === 'import-bookmarks' && el.bookmarksFile) el.bookmarksFile.click();
     if (name === 'sync') {
       syncNow();
       toast('正在同步…');
@@ -621,6 +773,14 @@
     if (f) importBackup(f);
     el.importFile.value = '';
   });
+
+  if (el.bookmarksFile) {
+    el.bookmarksFile.addEventListener('change', () => {
+      const f = el.bookmarksFile.files && el.bookmarksFile.files[0];
+      if (f) importBookmarks(f);
+      el.bookmarksFile.value = '';
+    });
+  }
 
   window.addEventListener('online', () => syncNow());
   document.addEventListener('visibilitychange', () => {
