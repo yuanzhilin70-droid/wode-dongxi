@@ -12,7 +12,6 @@
     sync: $('#sync'),
     q: $('#q'),
     qClear: $('#q-clear'),
-    chips: $('#chips'),
     list: $('#list'),
     fab: $('#fab'),
     menuBtn: $('#btn-menu'),
@@ -37,7 +36,6 @@
     items: {},
     deleted: {},
     query: '',
-    filter: 'all',
     editingId: null,
     sheetOpen: null,
     offline: false,
@@ -47,6 +45,7 @@
   let toastTimer = 0;
   let pushTimer = 0;
   let pushing = false;
+  const expanded = new Set(); // 分类视图里展开了哪些文件夹
 
   /* ------------------------------------------------------------ 小工具 */
 
@@ -165,76 +164,21 @@
     return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'));
   }
 
-  function visibleItems() {
-    const q = state.query.trim().toLowerCase();
-    let list = allItems().filter((it) => {
-      if (state.filter === 'pinned') return it.pinned;
-      if (state.filter.startsWith('cat:')) return it.cat === state.filter.slice(4);
-      return true;
-    });
-    if (q) {
-      list = list.filter((it) =>
-        (it.title + '\n' + it.body + '\n' + (it.url || '') + '\n' + it.cat + '\n' + it.tags.join(' '))
-          .toLowerCase()
-          .includes(q)
-      );
-    }
-    return list.sort((a, b) => {
-      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      return b.updatedAt - a.updatedAt;
-    });
+  function matchesQuery(it, q) {
+    return (it.title + '\n' + it.body + '\n' + (it.url || '') + '\n' + it.cat + '\n' + it.tags.join(' '))
+      .toLowerCase()
+      .includes(q);
   }
 
-  function renderChips() {
-    const cats = categories();
-    const pinnedCount = allItems().filter((i) => i.pinned).length;
-    let html = `<button class="chip" type="button" data-filter="all" aria-pressed="${state.filter === 'all'}">全部<b>${allItems().length}</b></button>`;
-    if (pinnedCount) {
-      html += `<button class="chip" type="button" data-filter="pinned" aria-pressed="${state.filter === 'pinned'}">置顶<b>${pinnedCount}</b></button>`;
-    }
-    for (const [name, n] of cats) {
-      const active = state.filter === 'cat:' + name;
-      html += `<button class="chip" type="button" data-filter="cat:${esc(name)}" aria-pressed="${active}">${esc(name)}<b>${n}</b></button>`;
-    }
-    el.chips.innerHTML = html;
-
-    // 当前分类被删空了就回到「全部」
-    if (state.filter.startsWith('cat:') && !cats.some(([n]) => 'cat:' + n === state.filter)) {
-      state.filter = 'all';
-      renderChips();
-    }
-  }
-
-  function cardHtml(it) {
-    const tags = it.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join('');
-    const title = it.title ? `<h2>${esc(it.title)}</h2>` : '';
-    const body = it.body ? `<p class="body">${esc(it.body)}</p>` : '';
-    const cat = it.cat ? `<span class="cat-pill">${esc(it.cat)}</span>` : '';
-    const host = it.url ? `<span class="host">${esc(hostOf(it.url))}</span>` : '';
-    const isLink = Boolean(it.url);
-    return `<div class="card${isLink ? ' has-url' : ''}" data-id="${esc(it.id)}"${
-      isLink ? '' : ' role="button" tabindex="0"'
-    }>
-      ${isLink ? `<a class="card-hit" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(it.title || it.url)}"></a>` : ''}
-      ${it.pinned ? '<span class="pin-mark"></span>' : ''}
-      ${title}${body}
-      <span class="meta">${cat}${host}${tags}<span class="time">${fmtTime(it.updatedAt)}</span></span>
-      ${
-        isLink
-          ? `<button class="card-edit" type="button" data-edit="${esc(it.id)}" aria-label="编辑">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>
-            </button>`
-          : ''
-      }
-    </div>`;
+  function sortedItems(arr) {
+    return arr
+      .slice()
+      .sort((a, b) => (a.pinned === b.pinned ? b.updatedAt - a.updatedAt : a.pinned ? -1 : 1));
   }
 
   function emptyHtml() {
     if (state.query.trim()) {
       return `<div class="empty"><div class="big">没找到</div><p>换个词试试，或者清空搜索。</p></div>`;
-    }
-    if (state.filter !== 'all') {
-      return `<div class="empty"><div class="big">这里还空着</div><p>换到「全部」看看，或者记一条新的。</p></div>`;
     }
     return `<div class="empty">
       <div class="big">还没有东西</div>
@@ -243,15 +187,68 @@
     </div>`;
   }
 
-  function renderList() {
-    const list = visibleItems();
-    el.list.innerHTML = list.length ? list.map(cardHtml).join('') : emptyHtml();
+  function renderSearch() {
+    const q = state.query.trim().toLowerCase();
+    const list = sortedItems(allItems().filter((it) => matchesQuery(it, q)));
+    el.list.innerHTML = list.length
+      ? `<div class="folders"><div class="search-head">找到 ${list.length} 条</div>${bookmarkList(list)}</div>`
+      : emptyHtml();
   }
 
   function renderAll() {
-    renderChips();
-    renderList();
+    if (state.query.trim()) renderSearch();
+    else renderFolders();
     renderCatList();
+  }
+
+  const FOLDER_ICON =
+    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.2h7A1.5 1.5 0 0 1 19 9.7v7.8A1.5 1.5 0 0 1 17.5 19h-13A1.5 1.5 0 0 1 3 17.5z"/></svg>';
+
+  function folderRow(cat, name, count, open) {
+    return `<button class="folder" type="button" data-toggle="${esc(cat)}">
+      <span class="f-chev${open ? ' open' : ''}">›</span>
+      <span class="f-ico">${FOLDER_ICON}</span>
+      <span class="f-name">${esc(name)}</span>
+      <span class="f-count">${count}</span>
+    </button>`;
+  }
+
+  function bookmarkList(items) {
+    const rows = items.map((it) => {
+      const label = it.title || hostOf(it.url) || '(没有标题)';
+      const letter = (hostOf(it.url) || label).slice(0, 1).toUpperCase();
+      const badge = `<span class="b-badge">${esc(letter)}</span>`;
+      const edit = `<button class="b-edit" type="button" data-edit="${esc(it.id)}" aria-label="编辑">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>
+        </button>`;
+      const main = it.url
+        ? `<a class="b-main" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="${esc(it.url)}">${badge}<span class="b-title">${esc(label)}</span></a>`
+        : `<button class="b-main" type="button" data-id="${esc(it.id)}">${badge}<span class="b-title">${esc(label)}</span></button>`;
+      return `<div class="bookmark">${main}${edit}</div>`;
+    });
+    return `<div class="folder-items">${rows.join('')}</div>`;
+  }
+
+  function renderFolders() {
+    const total = allItems().length;
+    if (!total) {
+      el.list.innerHTML = `<div class="folders">${folderRow('', '全部', 0, false)}</div>` + emptyHtml();
+      return;
+    }
+    let html = folderRow('', '全部', total, expanded.has(''));
+    if (expanded.has('')) html += bookmarkList(sortedItems(allItems()));
+    for (const [name, n] of categories()) {
+      const open = expanded.has(name);
+      html += folderRow(name, name, n, open);
+      if (open) html += bookmarkList(sortedItems(allItems().filter((it) => it.cat === name)));
+    }
+    const uncat = sortedItems(allItems().filter((it) => !it.cat));
+    if (uncat.length) {
+      const open = expanded.has('__none');
+      html += folderRow('__none', '未分类', uncat.length, open);
+      if (open) html += bookmarkList(uncat);
+    }
+    el.list.innerHTML = `<div class="folders">${html}</div>`;
   }
 
   function renderCatList() {
@@ -293,7 +290,7 @@
     el.fTitle.value = it ? it.title : '';
     el.fBody.value = it ? it.body : '';
     el.fUrl.value = it ? it.url || '' : '';
-    el.fCat.value = it ? it.cat : state.filter.startsWith('cat:') ? state.filter.slice(4) : '';
+    el.fCat.value = it ? it.cat : '';
     el.fTags.value = it ? it.tags.join(', ') : '';
     el.fPin.checked = it ? it.pinned : false;
     el.fDel.hidden = !it;
@@ -397,7 +394,7 @@
     el.sync.hidden = true;
     const sbtn = el.menu.querySelector('[data-act="sync"]');
     if (sbtn) sbtn.hidden = true;
-    renderList(); // 空状态的文案要跟着换
+    renderAll(); // 空状态、文件夹视图的文案都要跟着换
     toast('记录只存在这台设备上');
   }
 
@@ -669,31 +666,25 @@
     openSheet(el.menu);
   });
 
-  el.chips.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-filter]');
-    if (!btn) return;
-    state.filter = btn.dataset.filter;
-    renderAll();
-  });
-
   el.list.addEventListener('click', (e) => {
     const editBtn = e.target.closest('[data-edit]');
     if (editBtn) {
       openEditor(editBtn.dataset.edit);
       return;
     }
-    const card = e.target.closest('.card');
-    if (!card) return;
-    if (card.classList.contains('has-url')) return; // 有链接的卡片交给 <a> 去打开
-    openEditor(card.dataset.id);
-  });
-
-  el.list.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    const card = e.target.closest('.card');
-    if (!card || card.classList.contains('has-url')) return;
-    e.preventDefault();
-    openEditor(card.dataset.id);
+    const bookmark = e.target.closest('.bookmark [data-id]');
+    if (bookmark) {
+      openEditor(bookmark.dataset.id);
+      return;
+    }
+    const folder = e.target.closest('.folder');
+    if (folder) {
+      const key = folder.dataset.toggle;
+      if (key === undefined) return;
+      if (expanded.has(key)) expanded.delete(key);
+      else expanded.add(key);
+      renderFolders();
+    }
   });
 
   let qTimer = 0;
@@ -702,7 +693,7 @@
     qTimer = window.setTimeout(() => {
       state.query = el.q.value;
       el.qClear.hidden = !el.q.value;
-      renderList();
+      renderAll();
     }, 120);
   });
 
