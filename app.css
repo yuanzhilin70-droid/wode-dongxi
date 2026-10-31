@@ -245,22 +245,26 @@ button { cursor: pointer; }
 .folder:last-child { border-bottom: 0; }
 .folder:active { background: var(--surface-2); }
 
-.folder .f-ico {
+.folder .f-ico,
+.f-main .f-ico {
   display: grid;
   place-items: center;
   color: var(--accent);
   flex: 0 0 auto;
 }
 
-.folder .f-name {
+.folder .f-name,
+.f-main .f-name {
   flex: 1;
+  min-width: 0;
   font-size: 15.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.folder .f-count {
+.folder .f-count,
+.f-main .f-count {
   padding: 1px 9px;
   border-radius: 999px;
   background: var(--surface-2);
@@ -275,7 +279,8 @@ button { cursor: pointer; }
   line-height: 1;
 }
 
-.folder .f-chev {
+.folder .f-chev,
+.f-main .f-chev {
   width: 14px;
   margin-right: -2px;
   color: var(--ink-2);
@@ -285,7 +290,63 @@ button { cursor: pointer; }
   transition: transform .16s ease;
 }
 
-.folder .f-chev.open { transform: rotate(90deg); }
+.folder .f-chev.open,
+.f-main .f-chev.open { transform: rotate(90deg); }
+
+/* 可拖动的文件夹行 */
+.folder-group {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--line);
+}
+
+.folder-group:last-child { border-bottom: 0; }
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+}
+
+.folder-row:active { background: var(--surface-2); }
+
+.f-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 12px 6px 12px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15.5px;
+  text-align: left;
+}
+
+.f-grip {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 40px;
+  color: var(--ink-2);
+  opacity: .4;
+  font-size: 17px;
+  line-height: 1;
+  letter-spacing: -2px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.folder-group.dragging {
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 10px;
+}
+
+.folder-group .folder-items { border-bottom: 0; }
 
 .folder-items {
   padding: 4px 0 8px;
@@ -377,52 +438,6 @@ button { cursor: pointer; }
   padding: 12px 16px 12px 46px;
   color: var(--ink-2);
   font-size: 13px;
-}
-
-.reorder-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  background: var(--surface);
-  color: var(--ink-2);
-  font-size: 13px;
-}
-
-.reorder-bar button {
-  flex: 0 0 auto;
-  padding: 6px 16px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 13.5px;
-}
-
-.reorder-row {
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.reorder-row.dragging {
-  background: var(--surface-2);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
-}
-
-.f-grip {
-  flex: 0 0 auto;
-  padding: 0 2px 0 8px;
-  color: var(--ink-2);
-  opacity: .55;
-  font-size: 17px;
-  line-height: 1;
-  letter-spacing: -2px;
 }
 
 .f-del {

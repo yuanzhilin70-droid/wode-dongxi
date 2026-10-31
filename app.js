@@ -37,7 +37,6 @@
     deleted: {},
     folders: [],
     query: '',
-    reorder: false,
     editingId: null,
     sheetOpen: null,
     offline: false,
@@ -231,8 +230,7 @@
   }
 
   function renderAll() {
-    if (state.reorder) renderReorder();
-    else if (state.query.trim()) renderSearch();
+    if (state.query.trim()) renderSearch();
     else renderFolders();
     renderCatList();
   }
@@ -292,14 +290,26 @@
     </button>`;
 
     for (const name of folders) {
+      const n = counts.get(name) || 0;
       const open = expanded.has(name);
-      html += folderRow(name, name, counts.get(name) || 0, open);
-      if (open) {
-        const items = sortedItems(allItems().filter((it) => it.cat === name));
-        html += items.length
-          ? bookmarkList(items)
-          : `<div class="folder-items"><div class="empty-row">这个文件夹还空着</div></div>`;
-      }
+      const items = sortedItems(allItems().filter((it) => it.cat === name));
+      html += `<div class="folder-group" data-name="${esc(name)}">
+        <div class="folder-row">
+          <button class="f-main" type="button" data-toggle="${esc(name)}">
+            <span class="f-chev${open ? ' open' : ''}">›</span>
+            <span class="f-ico">${FOLDER_ICON}</span>
+            <span class="f-name">${esc(name)}</span>
+            <span class="f-count">${n}</span>
+          </button>
+          ${
+            n === 0
+              ? `<button class="f-del" type="button" data-del-folder="${esc(name)}" aria-label="删除空文件夹">×</button>`
+              : ''
+          }
+          <span class="f-grip" aria-hidden="true">⠿</span>
+        </div>
+        ${open ? (items.length ? bookmarkList(items) : `<div class="folder-items"><div class="empty-row">这个文件夹还空着</div></div>`) : ''}
+      </div>`;
     }
 
     const uncat = sortedItems(allItems().filter((it) => !it.cat));
@@ -309,32 +319,6 @@
       if (open) html += bookmarkList(uncat);
     }
     el.list.innerHTML = `<div class="folders">${html}</div>`;
-  }
-
-  function renderReorder() {
-    const counts = new Map(categories());
-    const rows = orderedFolders()
-      .map((name) => {
-        const n = counts.get(name) || 0;
-        const del =
-          n === 0
-            ? `<button class="f-del" type="button" data-del-folder="${esc(name)}" aria-label="删除空文件夹">×</button>`
-            : '';
-        return `<div class="folder reorder-row" data-name="${esc(name)}">
-          <span class="f-chev"></span>
-          <span class="f-ico">${FOLDER_ICON}</span>
-          <span class="f-name">${esc(name)}</span>
-          <span class="f-count">${n}</span>
-          ${del}
-          <span class="f-grip">⠿</span>
-        </div>`;
-      })
-      .join('');
-    el.list.innerHTML = `<div class="reorder-bar">
-        <span>按住 ⠿ 上下拖动排序</span>
-        <button type="button" data-reorder-done="1">完成</button>
-      </div>
-      <div class="folders">${rows || '<div class="empty-row">还没有文件夹</div>'}</div>`;
   }
 
   function renderCatList() {
@@ -770,19 +754,14 @@
       createFolder();
       return;
     }
-    if (e.target.closest('[data-reorder-done]')) {
-      finishReorder();
-      return;
-    }
     const delFolder = e.target.closest('[data-del-folder]');
     if (delFolder) {
       const name = delFolder.dataset.delFolder;
       state.folders = state.folders.filter((n) => n !== name);
       saveFolders();
-      renderReorder();
+      renderFolders();
       return;
     }
-    if (state.reorder) return; // 排序时点行不展开
     const editBtn = e.target.closest('[data-edit]');
     if (editBtn) {
       openEditor(editBtn.dataset.edit);
@@ -793,10 +772,9 @@
       openEditor(bookmark.dataset.id);
       return;
     }
-    const folder = e.target.closest('.folder');
-    if (folder) {
-      const key = folder.dataset.toggle;
-      if (key === undefined) return;
+    const toggle = e.target.closest('[data-toggle]');
+    if (toggle) {
+      const key = toggle.dataset.toggle;
       if (expanded.has(key)) expanded.delete(key);
       else expanded.add(key);
       renderFolders();
@@ -813,46 +791,47 @@
     renderFolders();
   }
 
-  function finishReorder() {
-    state.folders = [...el.list.querySelectorAll('.reorder-row')]
-      .map((r) => r.dataset.name)
+  function saveOrderFromDom() {
+    const names = [...el.list.querySelectorAll('.folder-group')]
+      .map((g) => g.dataset.name)
       .filter(Boolean);
+    if (!names.length) return;
+    state.folders = names;
     saveFolders();
-    state.reorder = false;
-    renderAll();
     toast('顺序已保存');
   }
 
-  /* 拖动排序（手机和电脑都能用） */
-  let dragRow = null;
+  /* 拖动排序：按住行尾的 ⠿ 上下拖，手机和电脑都能用 */
+  let dragEl = null;
 
   function onDragMove(e) {
-    if (!dragRow || !dragRow.parentElement) return;
-    const list = dragRow.parentElement;
-    for (const row of list.querySelectorAll('.reorder-row')) {
-      if (row === dragRow) continue;
-      const box = row.getBoundingClientRect();
+    if (!dragEl || !dragEl.parentElement) return;
+    const list = dragEl.parentElement;
+    for (const group of list.querySelectorAll('.folder-group')) {
+      if (group === dragEl) continue;
+      const box = group.getBoundingClientRect();
       if (e.clientY < box.top + box.height / 2) {
-        if (row.previousElementSibling !== dragRow) list.insertBefore(dragRow, row);
+        if (group.previousElementSibling !== dragEl) list.insertBefore(dragEl, group);
         return;
       }
     }
-    if (list.lastElementChild !== dragRow) list.appendChild(dragRow);
+    if (list.lastElementChild !== dragEl) list.appendChild(dragEl);
   }
 
   function onDragEnd() {
     window.removeEventListener('pointermove', onDragMove);
-    if (dragRow) dragRow.classList.remove('dragging');
-    dragRow = null;
+    if (dragEl) dragEl.classList.remove('dragging');
+    dragEl = null;
+    saveOrderFromDom();
   }
 
   el.list.addEventListener('pointerdown', (e) => {
     const grip = e.target.closest('.f-grip');
     if (!grip) return;
-    dragRow = grip.closest('.reorder-row');
-    if (!dragRow) return;
+    dragEl = grip.closest('.folder-group');
+    if (!dragEl) return;
     e.preventDefault();
-    dragRow.classList.add('dragging');
+    dragEl.classList.add('dragging');
     window.addEventListener('pointermove', onDragMove);
     window.addEventListener('pointerup', onDragEnd, { once: true });
     window.addEventListener('pointercancel', onDragEnd, { once: true });
@@ -862,7 +841,6 @@
   el.q.addEventListener('input', () => {
     window.clearTimeout(qTimer);
     qTimer = window.setTimeout(() => {
-      if (state.reorder) state.reorder = false;
       state.query = el.q.value;
       el.qClear.hidden = !el.q.value;
       renderAll();
@@ -913,15 +891,6 @@
     if (name === 'export') exportBackup();
     if (name === 'import') el.importFile.click();
     if (name === 'import-bookmarks' && el.bookmarksFile) el.bookmarksFile.click();
-    if (name === 'reorder') {
-      closeSheet(el.menu);
-      state.reorder = true;
-      state.query = '';
-      el.q.value = '';
-      el.qClear.hidden = true;
-      renderAll();
-      window.scrollTo(0, 0);
-    }
     if (name === 'sync') {
       syncNow();
       toast('正在同步…');
