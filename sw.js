@@ -1,5 +1,5 @@
 /* 离线缓存：断网也能打开已经加载过的页面 */
-const CACHE = 'wode-dongxi-v4';
+const CACHE = 'wode-dongxi-v5';
 const SHELL = [
   './',
   './index.html',

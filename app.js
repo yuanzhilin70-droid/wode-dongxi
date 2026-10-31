@@ -35,7 +35,9 @@
   const state = {
     items: {},
     deleted: {},
+    folders: [],
     query: '',
+    reorder: false,
     editingId: null,
     sheetOpen: null,
     offline: false,
@@ -139,11 +141,44 @@
       state.items = {};
       state.deleted = {};
     }
+    state.folders = loadFolders();
+    // 还没有存过顺序时，按条目当初导入的先后顺序来定文件夹顺序
+    if (!state.folders.length) {
+      const seen = [];
+      for (const it of Object.values(state.items)) {
+        if (it.cat && !seen.includes(it.cat)) seen.push(it.cat);
+      }
+      if (seen.length) {
+        state.folders = seen;
+        saveFolders();
+      }
+    }
+  }
+
+  function loadFolders() {
+    try {
+      const arr = JSON.parse(localStorage.getItem('wode-dongxi.folders') || '[]');
+      if (Array.isArray(arr)) return arr.filter((x) => typeof x === 'string' && x.trim());
+    } catch {
+      /* 忽略 */
+    }
+    return [];
+  }
+
+  function saveFolders() {
+    try {
+      localStorage.setItem('wode-dongxi.folders', JSON.stringify(state.folders));
+    } catch {
+      /* 忽略 */
+    }
   }
 
   function saveStore() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ items: state.items, deleted: state.deleted }));
+      localStorage.setItem(
+        STORE_KEY,
+        JSON.stringify({ items: state.items, deleted: state.deleted, folders: state.folders })
+      );
     } catch {
       toast('本地空间满了，先导出备份吧');
     }
@@ -196,7 +231,8 @@
   }
 
   function renderAll() {
-    if (state.query.trim()) renderSearch();
+    if (state.reorder) renderReorder();
+    else if (state.query.trim()) renderSearch();
     else renderFolders();
     renderCatList();
   }
@@ -229,19 +265,43 @@
     return `<div class="folder-items">${rows.join('')}</div>`;
   }
 
+  function orderedFolders() {
+    const derived = categories().map(([name]) => name);
+    const out = [];
+    for (const name of state.folders) if (!out.includes(name)) out.push(name);
+    for (const name of derived) if (!out.includes(name)) out.push(name);
+    return out;
+  }
+
   function renderFolders() {
     const total = allItems().length;
-    if (!total) {
+    const counts = new Map(categories());
+    const folders = orderedFolders();
+    if (!total && !folders.length) {
       el.list.innerHTML = `<div class="folders">${folderRow('', '全部', 0, false)}</div>` + emptyHtml();
       return;
     }
+
     let html = folderRow('', '全部', total, expanded.has(''));
     if (expanded.has('')) html += bookmarkList(sortedItems(allItems()));
-    for (const [name, n] of categories()) {
+
+    html += `<button class="folder new-folder" type="button" data-new-folder="1">
+      <span class="f-chev"></span>
+      <span class="f-ico f-plus">＋</span>
+      <span class="f-name">新建文件夹</span>
+    </button>`;
+
+    for (const name of folders) {
       const open = expanded.has(name);
-      html += folderRow(name, name, n, open);
-      if (open) html += bookmarkList(sortedItems(allItems().filter((it) => it.cat === name)));
+      html += folderRow(name, name, counts.get(name) || 0, open);
+      if (open) {
+        const items = sortedItems(allItems().filter((it) => it.cat === name));
+        html += items.length
+          ? bookmarkList(items)
+          : `<div class="folder-items"><div class="empty-row">这个文件夹还空着</div></div>`;
+      }
     }
+
     const uncat = sortedItems(allItems().filter((it) => !it.cat));
     if (uncat.length) {
       const open = expanded.has('__none');
@@ -249,6 +309,32 @@
       if (open) html += bookmarkList(uncat);
     }
     el.list.innerHTML = `<div class="folders">${html}</div>`;
+  }
+
+  function renderReorder() {
+    const counts = new Map(categories());
+    const rows = orderedFolders()
+      .map((name) => {
+        const n = counts.get(name) || 0;
+        const del =
+          n === 0
+            ? `<button class="f-del" type="button" data-del-folder="${esc(name)}" aria-label="删除空文件夹">×</button>`
+            : '';
+        return `<div class="folder reorder-row" data-name="${esc(name)}">
+          <span class="f-chev"></span>
+          <span class="f-ico">${FOLDER_ICON}</span>
+          <span class="f-name">${esc(name)}</span>
+          <span class="f-count">${n}</span>
+          ${del}
+          <span class="f-grip">⠿</span>
+        </div>`;
+      })
+      .join('');
+    el.list.innerHTML = `<div class="reorder-bar">
+        <span>按住 ⠿ 上下拖动排序</span>
+        <button type="button" data-reorder-done="1">完成</button>
+      </div>
+      <div class="folders">${rows || '<div class="empty-row">还没有文件夹</div>'}</div>`;
   }
 
   function renderCatList() {
@@ -508,6 +594,7 @@
       app: '我的东西',
       version: 1,
       exportedAt: new Date().toISOString(),
+      folders: state.folders,
       items: Object.values(state.items).sort((a, b) => b.updatedAt - a.updatedAt),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -540,6 +627,11 @@
         const merged = merge(state, incoming);
         state.items = merged.items;
         state.deleted = merged.deleted;
+        if (Array.isArray(parsed.folders)) {
+          if (!state.folders.length) state.folders = parsed.folders.filter((x) => typeof x === 'string');
+          else for (const n of parsed.folders) if (typeof n === 'string' && !state.folders.includes(n)) state.folders.push(n);
+          saveFolders();
+        }
         saveStore();
         renderAll();
         push();
@@ -633,6 +725,13 @@
         };
         added += 1;
       }
+      // 按文件里的先后顺序记住文件夹；第一次导入就照这个顺序排
+      const seenOrder = [];
+      for (const b of list) if (b.cat && !seenOrder.includes(b.cat)) seenOrder.push(b.cat);
+      if (!state.folders.length) state.folders = seenOrder;
+      else for (const n of seenOrder) if (!state.folders.includes(n)) state.folders.push(n);
+      saveFolders();
+
       saveStore();
       renderAll();
       push();
@@ -667,6 +766,23 @@
   });
 
   el.list.addEventListener('click', (e) => {
+    if (e.target.closest('[data-new-folder]')) {
+      createFolder();
+      return;
+    }
+    if (e.target.closest('[data-reorder-done]')) {
+      finishReorder();
+      return;
+    }
+    const delFolder = e.target.closest('[data-del-folder]');
+    if (delFolder) {
+      const name = delFolder.dataset.delFolder;
+      state.folders = state.folders.filter((n) => n !== name);
+      saveFolders();
+      renderReorder();
+      return;
+    }
+    if (state.reorder) return; // 排序时点行不展开
     const editBtn = e.target.closest('[data-edit]');
     if (editBtn) {
       openEditor(editBtn.dataset.edit);
@@ -687,10 +803,66 @@
     }
   });
 
+  function createFolder() {
+    const name = (window.prompt('新文件夹的名字') || '').trim();
+    if (!name) return;
+    if (!state.folders.includes(name)) {
+      state.folders.push(name);
+      saveFolders();
+    }
+    renderFolders();
+  }
+
+  function finishReorder() {
+    state.folders = [...el.list.querySelectorAll('.reorder-row')]
+      .map((r) => r.dataset.name)
+      .filter(Boolean);
+    saveFolders();
+    state.reorder = false;
+    renderAll();
+    toast('顺序已保存');
+  }
+
+  /* 拖动排序（手机和电脑都能用） */
+  let dragRow = null;
+
+  function onDragMove(e) {
+    if (!dragRow || !dragRow.parentElement) return;
+    const list = dragRow.parentElement;
+    for (const row of list.querySelectorAll('.reorder-row')) {
+      if (row === dragRow) continue;
+      const box = row.getBoundingClientRect();
+      if (e.clientY < box.top + box.height / 2) {
+        if (row.previousElementSibling !== dragRow) list.insertBefore(dragRow, row);
+        return;
+      }
+    }
+    if (list.lastElementChild !== dragRow) list.appendChild(dragRow);
+  }
+
+  function onDragEnd() {
+    window.removeEventListener('pointermove', onDragMove);
+    if (dragRow) dragRow.classList.remove('dragging');
+    dragRow = null;
+  }
+
+  el.list.addEventListener('pointerdown', (e) => {
+    const grip = e.target.closest('.f-grip');
+    if (!grip) return;
+    dragRow = grip.closest('.reorder-row');
+    if (!dragRow) return;
+    e.preventDefault();
+    dragRow.classList.add('dragging');
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragEnd, { once: true });
+    window.addEventListener('pointercancel', onDragEnd, { once: true });
+  });
+
   let qTimer = 0;
   el.q.addEventListener('input', () => {
     window.clearTimeout(qTimer);
     qTimer = window.setTimeout(() => {
+      if (state.reorder) state.reorder = false;
       state.query = el.q.value;
       el.qClear.hidden = !el.q.value;
       renderAll();
@@ -701,7 +873,7 @@
     el.q.value = '';
     state.query = '';
     el.qClear.hidden = true;
-    renderList();
+    renderAll();
     el.q.focus();
   });
 
@@ -741,6 +913,15 @@
     if (name === 'export') exportBackup();
     if (name === 'import') el.importFile.click();
     if (name === 'import-bookmarks' && el.bookmarksFile) el.bookmarksFile.click();
+    if (name === 'reorder') {
+      closeSheet(el.menu);
+      state.reorder = true;
+      state.query = '';
+      el.q.value = '';
+      el.qClear.hidden = true;
+      renderAll();
+      window.scrollTo(0, 0);
+    }
     if (name === 'sync') {
       syncNow();
       toast('正在同步…');
