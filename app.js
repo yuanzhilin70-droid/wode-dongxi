@@ -27,6 +27,10 @@
     catList: $('#cat-list'),
     menu: $('#menu'),
     menuStat: $('#menu-stat'),
+    cloudSheet: $('#cloud'),
+    cUrl: $('#c-url'),
+    cToken: $('#c-token'),
+    cTest: $('#c-test'),
     importFile: $('#import-file'),
     bookmarksFile: $('#bookmarks-file'),
     toast: $('#toast'),
@@ -449,23 +453,60 @@
 
   /* ------------------------------------------------------------ 同步 */
 
-  // 没有电脑在旁边（比如放在网上的版本）时，自动变成「只存这台设备」
+  // 没有配云同步（或连不上）时，就只在本地保存
   let localOnly = false;
+
+  function loadCloud() {
+    try {
+      const c = JSON.parse(localStorage.getItem('wode-dongxi.cloud') || 'null');
+      if (c && typeof c.url === 'string' && c.url.trim()) {
+        return { url: c.url.trim(), token: String(c.token || '') };
+      }
+    } catch {
+      /* 忽略 */
+    }
+    return null;
+  }
+
+  function saveCloud(c) {
+    try {
+      if (c && c.url) localStorage.setItem('wode-dongxi.cloud', JSON.stringify(c));
+      else localStorage.removeItem('wode-dongxi.cloud');
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  let cloud = loadCloud();
+
+  function cloudHeaders(extra) {
+    const h = Object.assign({}, extra || {});
+    if (cloud && cloud.token) h['x-sync-token'] = cloud.token;
+    return h;
+  }
 
   function setSync(s) {
     el.sync.dataset.state = s;
     el.sync.title =
-      s === 'syncing' ? '正在同步…' : s === 'offline' ? '连不上电脑，改动先存在手机里' : '已同步';
+      s === 'syncing' ? '正在同步…' : s === 'offline' ? '连不上云端，改动先存在本机' : '已同步';
   }
 
-  function enterLocalMode() {
+  function enterLocalMode(silent) {
     if (localOnly) return;
     localOnly = true;
     el.sync.hidden = true;
     const sbtn = el.menu.querySelector('[data-act="sync"]');
     if (sbtn) sbtn.hidden = true;
     renderAll(); // 空状态、文件夹视图的文案都要跟着换
-    toast('记录只存在这台设备上');
+    if (!silent) toast('记录只存在这台设备上');
+  }
+
+  function exitLocalMode() {
+    localOnly = false;
+    el.sync.hidden = false;
+    const sbtn = el.menu.querySelector('[data-act="sync"]');
+    if (sbtn) sbtn.hidden = false;
+    setSync('idle');
   }
 
   function applyRemote(data) {
@@ -486,7 +527,12 @@
   }
 
   async function apiGet() {
-    const r = await fetch('./api/notes', { cache: 'no-store' });
+    const r = await fetch(cloud.url, { cache: 'no-store', headers: cloudHeaders() });
+    if (r.status === 401 || r.status === 403) {
+      const e = new Error('口令不对');
+      e.auth = true;
+      throw e;
+    }
     if (!r.ok) {
       const e = new Error('HTTP ' + r.status);
       e.permanent = r.status === 404 || r.status === 405;
@@ -494,7 +540,7 @@
     }
     const ct = (r.headers.get('content-type') || '').toLowerCase();
     if (!ct.includes('application/json')) {
-      const e = new Error('没有数据接口');
+      const e = new Error('地址不是同步接口');
       e.permanent = true;
       throw e;
     }
@@ -502,11 +548,16 @@
   }
 
   async function apiPost() {
-    const r = await fetch('./api/notes', {
+    const r = await fetch(cloud.url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: cloudHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ items: Object.values(state.items), deleted: state.deleted }),
     });
+    if (r.status === 401 || r.status === 403) {
+      const e = new Error('口令不对');
+      e.auth = true;
+      throw e;
+    }
     if (!r.ok) {
       const e = new Error('HTTP ' + r.status);
       e.permanent = r.status === 404 || r.status === 405;
@@ -518,7 +569,7 @@
   let pushedSig = '';
 
   async function push() {
-    if (localOnly || pushing) return;
+    if (localOnly || !cloud || pushing) return;
     if (signature() === pushedSig) {
       setSync('idle');
       return;
@@ -532,6 +583,12 @@
       state.offline = false;
       setSync('idle');
     } catch (err) {
+      if (err && err.auth) {
+        state.offline = true;
+        setSync('offline');
+        toast('口令不对，去「云同步设置」看看');
+        return;
+      }
       if (err && err.permanent) return enterLocalMode();
       state.offline = true;
       setSync('offline');
@@ -546,7 +603,7 @@
   }
 
   async function syncNow() {
-    if (localOnly || pushing) return;
+    if (localOnly || !cloud || pushing) return;
     setSync('syncing');
     try {
       const data = await apiGet();
@@ -554,6 +611,12 @@
       state.offline = false;
       setSync('idle');
     } catch (err) {
+      if (err && err.auth) {
+        state.offline = true;
+        setSync('offline');
+        toast('口令不对，去「云同步设置」看看');
+        return;
+      }
       if (err && err.permanent) return enterLocalMode();
       state.offline = true;
       setSync('offline');
@@ -735,16 +798,18 @@
   el.menuBtn.addEventListener('click', () => {
     el.menuStat.textContent =
       `共 ${allItems().length} 条 · ` +
-      (localOnly
-        ? '只存在这台手机上'
-        : state.offline
-          ? '现在连不上电脑（改动已存在手机里）'
-          : '已和电脑同步');
+      (!cloud
+        ? '只存在这台设备上'
+        : localOnly
+          ? '只存在这台设备上（云同步没连上）'
+          : state.offline
+            ? '现在连不上云端（改动已存在本机）'
+            : '已同步到云端');
     const hint = el.menu.querySelector('.hint');
     if (hint) {
-      hint.textContent = localOnly
-        ? '记录只存在这台设备上。建议偶尔「导出备份」，存到网盘或发给自己。'
-        : '数据存在电脑上的 notes-app/data/notes.json，随时可以复制走。';
+      hint.textContent = cloud
+        ? '云端地址：' + cloud.url + '（口令不显示）'
+        : '没有配置云同步，记录只存在这台设备上。偶尔「导出备份」更稳妥。';
     }
     openSheet(el.menu);
   });
@@ -895,6 +960,7 @@
       syncNow();
       toast('正在同步…');
     }
+    if (name === 'cloud') openCloud();
     if (name === 'wipe') {
       if (!window.confirm('清空全部记录？这个操作没法撤销。')) return;
       if (!window.confirm('真的全删掉？建议先导出备份。')) return;
@@ -923,6 +989,58 @@
     });
   }
 
+  /* ---- 云同步设置 ---- */
+
+  function openCloud() {
+    closeSheet(el.menu);
+    el.cUrl.value = cloud ? cloud.url : '';
+    el.cToken.value = cloud ? cloud.token : '';
+    openSheet(el.cloudSheet);
+  }
+
+  async function testCloud() {
+    if (!cloud) return toast('还没填同步地址');
+    toast('正在连接…');
+    try {
+      const data = await apiGet();
+      applyRemote(data);
+      pushedSig = '';
+      await push();
+      toast('连上了，已同步');
+    } catch (err) {
+      toast(err && err.auth ? '口令不对' : '连不上：' + (err.message || err));
+    }
+  }
+
+  function saveCloudConfig() {
+    const url = el.cUrl.value.trim();
+    const token = el.cToken.value.trim();
+    if (!url) {
+      cloud = null;
+      saveCloud(null);
+      enterLocalMode(true);
+      renderAll();
+      closeSheet(el.cloudSheet);
+      toast('已关闭云同步');
+      return;
+    }
+    cloud = { url, token };
+    saveCloud(cloud);
+    if (localOnly) exitLocalMode();
+    pushedSig = '';
+    closeSheet(el.cloudSheet);
+    testCloud();
+  }
+
+  el.cloudSheet.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-act]');
+    if (!act) return;
+    if (act.dataset.act === 'cloud-close') closeSheet(el.cloudSheet);
+    if (act.dataset.act === 'cloud-save') saveCloudConfig();
+  });
+
+  el.cTest.addEventListener('click', () => testCloud());
+
   window.addEventListener('online', () => syncNow());
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') syncNow();
@@ -944,8 +1062,12 @@
 
   loadStore();
   renderAll();
-  setSync('idle');
-  syncNow();
+  if (cloud) {
+    setSync('idle');
+    syncNow();
+  } else {
+    enterLocalMode(true); // 没配云同步：安静地只在本地存
+  }
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});

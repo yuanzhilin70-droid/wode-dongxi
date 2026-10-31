@@ -93,7 +93,10 @@
       <span>导入浏览器书签</span><small>选 Chrome 导出的 bookmarks.html</small>
     </button>
     <button class="menu-item" type="button" data-act="sync">
-      <span>立即同步</span><small>手机和电脑之间对一下</small>
+      <span>立即同步</span><small>和云端对一下</small>
+    </button>
+    <button class="menu-item" type="button" data-act="cloud">
+      <span>云同步设置</span><small>填地址和口令，电脑手机共用一份</small>
     </button>
     <button class="menu-item danger" type="button" data-act="wipe">
       <span>清空全部</span><small>删掉所有记录，慎重</small>
@@ -101,6 +104,30 @@
     <p class="hint">数据存在电脑上的 notes-app/data/notes.json，随时可以复制走。</p>
     <input id="import-file" type="file" accept="application/json,.json" hidden>
     <input id="bookmarks-file" type="file" accept=".html,text/html" hidden>
+  </div>
+</div>
+
+<!-- 云同步设置 -->
+<div id="cloud" class="sheet" hidden aria-modal="true" role="dialog">
+  <div class="sheet-head">
+    <button type="button" class="text-btn" data-act="cloud-close">取消</button>
+    <span class="sheet-title">云同步</span>
+    <button type="button" class="text-btn primary" data-act="cloud-save">保存</button>
+  </div>
+  <div class="sheet-body">
+    <label class="field">
+      <span>同步地址</span>
+      <input id="c-url" type="url" inputmode="url" placeholder="https://xxxx.workers.dev" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="field">
+      <span>口令</span>
+      <input id="c-token" type="text" placeholder="一长串随机字符" autocomplete="off" spellcheck="false">
+    </label>
+    <p class="hint">
+      填好点「保存」，会立刻试一次。两个框都清空，就回到「只存这台设备」。<br>
+      同步地址和口令只存在这台设备上，不会写进代码里。
+    </p>
+    <button id="c-test" class="danger-btn" type="button" style="border-color: var(--line); color: var(--ink);">测试连接</button>
   </div>
 </div>
 
