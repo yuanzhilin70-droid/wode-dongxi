@@ -397,6 +397,7 @@ button { cursor: pointer; }
 .b-edit:active { background: var(--line); opacity: 1; }
 
 .b-badge {
+  position: relative;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
@@ -408,6 +409,20 @@ button { cursor: pointer; }
   color: var(--ink-2);
   font-size: 11px;
   line-height: 1;
+  overflow: hidden;
+}
+
+.b-letter { line-height: 1; }
+
+/* 网站图标：能加载就盖住首字母，加载失败自己消失 */
+.b-fav {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--surface);
+  padding: 2px;
 }
 
 .b-title {

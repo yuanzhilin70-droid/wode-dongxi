@@ -283,13 +283,28 @@
     return out;
   }
 
+  /** 取原始主机名（不清 www），用来拼网站图标地址 */
+  function iconHost(url) {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return '';
+    }
+  }
+
   function bookmarkList(items, opts) {
     const o = opts || {};
     const q = o.q ? o.q.toLowerCase() : '';
     const rows = items.map((it) => {
       const label = it.title || hostOf(it.url) || '(没有标题)';
       const letter = (hostOf(it.url) || label).slice(0, 1).toUpperCase();
-      const badge = `<span class="b-badge">${esc(letter)}</span>`;
+      const host = it.url ? iconHost(it.url) : '';
+      // 先显示首字母；网站图标如果能加载出来就盖在上面，加载失败就自动移除
+      const badge = `<span class="b-badge"><span class="b-letter">${esc(letter)}</span>${
+        host
+          ? `<img class="b-fav" src="https://${esc(host)}/favicon.ico" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()">`
+          : ''
+      }</span>`;
       const edit = `<button class="b-edit" type="button" data-edit="${esc(it.id)}" aria-label="编辑">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>
         </button>`;
