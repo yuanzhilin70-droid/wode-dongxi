@@ -393,24 +393,24 @@
 
   /* ------------------------------------------------------------ 编辑 */
 
-  function openEditor(id) {
+  function openEditor(id, prefill) {
     state.editingId = id || null;
     const it = id ? state.items[id] : null;
 
-    el.fTitle.value = it ? it.title : '';
+    el.fTitle.value = it ? it.title : prefill ? prefill.title || '' : '';
     el.fBody.value = it ? it.body : '';
-    el.fUrl.value = it ? it.url || '' : '';
+    el.fUrl.value = it ? it.url || '' : prefill ? prefill.url || '' : '';
     el.fCat.value = it ? it.cat : '';
     el.fTags.value = it ? it.tags.join(', ') : '';
     el.fPin.checked = it ? it.pinned : false;
     el.fDel.hidden = !it;
-    $('.sheet-title', el.editor).textContent = it ? '编辑' : '写点什么';
+    $('.sheet-title', el.editor).textContent = it ? '编辑' : prefill ? '存这个链接' : '写点什么';
     el.fHint.textContent = it ? '上次修改：' + fmtTime(it.updatedAt) : '';
     snapshot = draftKey();
     autoGrow();
 
     openSheet(el.editor);
-    if (!it) window.setTimeout(() => el.fTitle.focus(), 320);
+    if (!it) window.setTimeout(() => (prefill && prefill.url ? el.fCat : el.fTitle).focus(), 320);
   }
 
   function draftKey() {
@@ -1088,9 +1088,41 @@
 
   /* ------------------------------------------------------------ 启动 */
 
+  /** 别的 App「分享」过来时，地址上会带 title / text / url */
+  function handleShareTarget() {
+    let params;
+    try {
+      params = new URLSearchParams(location.search);
+    } catch {
+      return;
+    }
+    const rawUrl = (params.get('url') || '').trim();
+    const rawText = (params.get('text') || '').trim();
+    const rawTitle = (params.get('title') || '').trim();
+    if (!rawUrl && !rawText && !rawTitle) return;
+
+    let url = rawUrl;
+    let title = rawTitle;
+    const fromText = rawText.match(/https?:\/\/[^\s"'<>]+/i);
+    if (!url && fromText) url = fromText[0];
+    if (!title) {
+      title = (fromText ? rawText.replace(fromText[0], '') : rawText).trim().slice(0, 120);
+    }
+    if (!url && !title) return;
+
+    // 把参数从地址栏清掉，免得刷新又弹一次
+    try {
+      history.replaceState(null, '', location.pathname);
+    } catch {
+      /* 忽略 */
+    }
+    openEditor(null, { title, url: cleanUrl(url) || url });
+  }
+
   loadStore();
   renderAll();
   enterLocalMode(true); // 只在本地存：安静地关掉同步状态
+  handleShareTarget();
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
