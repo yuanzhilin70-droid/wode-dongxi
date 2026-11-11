@@ -414,16 +414,19 @@ button { cursor: pointer; }
 
 .b-letter { line-height: 1; }
 
-/* 网站图标：能加载就盖住首字母，加载失败自己消失 */
+/* 网站图标：能加载就淡入盖住首字母，加载失败自己消失 */
 .b-fav {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: var(--surface);
   padding: 2px;
+  opacity: 0;
+  transition: opacity .18s ease;
 }
+
+.b-fav.ok { opacity: 1; }
 
 .b-title {
   flex: 1;

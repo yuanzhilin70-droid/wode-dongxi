@@ -1,5 +1,5 @@
-/* 离线缓存：断网也能打开已经加载过的页面 */
-const CACHE = 'wode-dongxi-v13';
+/* 离线缓存：断网也能打开已经加载过的页面；网站图标也一起缓存 */
+const CACHE = 'wode-dongxi-v14';
 const SHELL = [
   './',
   './index.html',
@@ -34,9 +34,10 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
-  // 数据和接口永远走网络，不做缓�?  if (url.pathname.startsWith('/api/')) return;
+  // 数据接口永远走网络，不做缓存
+  if (url.pathname.startsWith('/api/')) return;
 
-  // 页面：先网络（拿到最新版），失败再用缓存
+  // 页面：先网络（拿最新版），失败再用缓存
   if (req.mode === 'navigate') {
     e.respondWith(
       fetch(req)
@@ -50,11 +51,13 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // 其他静态资源：缓存优先，后台顺手更�?  e.respondWith(
+  // 其他资源：缓存优先，后台顺手更新
+  e.respondWith(
     caches.match(req).then((cached) => {
       const network = fetch(req)
         .then((res) => {
-          if (res && res.ok) {
+          // 跨域的网站图标是 opaque 响应，ok 为 false，但同样可以缓存
+          if (res && (res.ok || res.type === 'opaque')) {
             const copy = res.clone();
             caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
           }

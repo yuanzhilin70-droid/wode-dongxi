@@ -302,7 +302,7 @@
       // 先显示首字母；网站图标如果能加载出来就盖在上面，加载失败就自动移除
       const badge = `<span class="b-badge"><span class="b-letter">${esc(letter)}</span>${
         host
-          ? `<img class="b-fav" src="https://${esc(host)}/favicon.ico" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()">`
+          ? `<img class="b-fav" src="https://${esc(host)}/favicon.ico" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onload="this.classList.add('ok')" onerror="this.remove()">`
           : ''
       }</span>`;
       const edit = `<button class="b-edit" type="button" data-edit="${esc(it.id)}" aria-label="编辑">
