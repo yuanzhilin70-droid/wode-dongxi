@@ -223,9 +223,26 @@
 
   function renderSearch() {
     const q = state.query.trim().toLowerCase();
-    const list = sortedItems(allItems().filter((it) => matchesQuery(it, q)));
-    el.list.innerHTML = list.length
-      ? `<div class="folders"><div class="search-head">找到 ${list.length} 条</div>${bookmarkList(list)}</div>`
+    const hits = allItems()
+      .filter((it) => matchesQuery(it, q))
+      .map((it) => {
+        const t = (it.title || '').toLowerCase();
+        const c = (it.cat || '').toLowerCase();
+        const u = (it.url || '').toLowerCase();
+        // 标题命中排最前，其次是分类，再是网址；正文命中垫底
+        const score = t.includes(q) ? 0 : c.includes(q) ? 1 : u.includes(q) ? 2 : 3;
+        return { it, score };
+      })
+      .sort((a, b) => {
+        if (a.score !== b.score) return a.score - b.score;
+        if (a.it.pinned !== b.it.pinned) return a.it.pinned ? -1 : 1;
+        return b.it.updatedAt - a.it.updatedAt;
+      });
+    el.list.innerHTML = hits.length
+      ? `<div class="folders"><div class="search-head">找到 ${hits.length} 条</div>${bookmarkList(
+          hits.map((h) => h.it),
+          { q, showCat: true }
+        )}</div>`
       : emptyHtml();
   }
 
@@ -247,7 +264,28 @@
     </button>`;
   }
 
-  function bookmarkList(items) {
+  /** 把命中的词包成 <mark>，其余照常转义 */
+  function highlightText(text, q) {
+    const s = String(text);
+    if (!q) return esc(s);
+    const lower = s.toLowerCase();
+    let out = '';
+    let i = 0;
+    for (;;) {
+      const pos = lower.indexOf(q, i);
+      if (pos < 0) {
+        out += esc(s.slice(i));
+        break;
+      }
+      out += esc(s.slice(i, pos)) + '<mark>' + esc(s.slice(pos, pos + q.length)) + '</mark>';
+      i = pos + q.length;
+    }
+    return out;
+  }
+
+  function bookmarkList(items, opts) {
+    const o = opts || {};
+    const q = o.q ? o.q.toLowerCase() : '';
     const rows = items.map((it) => {
       const label = it.title || hostOf(it.url) || '(没有标题)';
       const letter = (hostOf(it.url) || label).slice(0, 1).toUpperCase();
@@ -255,10 +293,12 @@
       const edit = `<button class="b-edit" type="button" data-edit="${esc(it.id)}" aria-label="编辑">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>
         </button>`;
+      const titleHtml = q ? highlightText(label, q) : esc(label);
+      const cat = o.showCat && it.cat ? `<span class="b-cat">${esc(it.cat)}</span>` : '';
       const main = it.url
-        ? `<a class="b-main" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="${esc(it.url)}">${badge}<span class="b-title">${esc(label)}</span></a>`
-        : `<button class="b-main" type="button" data-id="${esc(it.id)}">${badge}<span class="b-title">${esc(label)}</span></button>`;
-      return `<div class="bookmark">${main}${edit}</div>`;
+        ? `<a class="b-main" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="${esc(it.url)}">${badge}<span class="b-title">${titleHtml}</span></a>`
+        : `<button class="b-main" type="button" data-id="${esc(it.id)}">${badge}<span class="b-title">${titleHtml}</span></button>`;
+      return `<div class="bookmark">${main}${cat}${edit}</div>`;
     });
     return `<div class="folder-items">${rows.join('')}</div>`;
   }
@@ -654,6 +694,59 @@
     toast('备份已下载');
   }
 
+  /** 导出成 Chrome / Edge 认识的 bookmarks.html，随时能搬回浏览器 */
+  function exportBookmarksHtml() {
+    const h = (s) =>
+      String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    const groups = new Map();
+    for (const it of allItems()) {
+      if (!it.url) continue;
+      const cat = it.cat || '未分类';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push(it);
+    }
+    if (!groups.size) return toast('还没有带链接的书签');
+
+    const order = orderedFolders().filter((c) => groups.has(c));
+    if (groups.has('未分类') && !order.includes('未分类')) order.push('未分类');
+
+    const out = [
+      '<!DOCTYPE NETSCAPE-Bookmark-file-1>',
+      '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+      '<TITLE>Bookmarks</TITLE>',
+      '<H1>Bookmarks</H1>',
+      '<DL><p>',
+      '    <DT><H3>我的东西</H3>',
+      '    <DL><p>',
+    ];
+    for (const cat of order) {
+      const items = groups
+        .get(cat)
+        .slice()
+        .sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'zh'));
+      out.push(`        <DT><H3>${h(cat)}</H3>`, '        <DL><p>');
+      for (const it of items) {
+        out.push(`            <DT><A HREF="${h(it.url)}">${h(it.title || it.url)}</A>`);
+      }
+      out.push('        </DL><p>');
+    }
+    out.push('    </DL><p>', '</DL><p>');
+
+    const blob = new Blob([out.join('\n')], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    a.href = url;
+    a.download = `我的东西书签-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('已导出，可在 Chrome 书签管理器里导入');
+  }
+
   function importBackup(file) {
     const reader = new FileReader();
     reader.onload = () => {
@@ -940,6 +1033,7 @@
     const name = act.dataset.act;
     if (name === 'menu-close') closeSheet(el.menu);
     if (name === 'export') exportBackup();
+    if (name === 'export-bookmarks') exportBookmarksHtml();
     if (name === 'import') el.importFile.click();
     if (name === 'import-bookmarks' && el.bookmarksFile) el.bookmarksFile.click();
     if (name === 'sync') {
