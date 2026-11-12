@@ -292,6 +292,23 @@
     }
   }
 
+  /** 网站自己的图标拿不到时，依次换备用图标服务（内联 onerror 会调它） */
+  window.favFallback = function (img) {
+    const host = img.getAttribute('data-h') || '';
+    const step = Number(img.getAttribute('data-step') || 0) + 1;
+    img.setAttribute('data-step', String(step));
+    const next = [
+      '',
+      'https://icons.duckduckgo.com/ip3/' + host + '.ico',
+      'https://www.google.com/s2/favicons?domain=' + host + '&sz=64',
+    ][step];
+    if (!next) {
+      img.remove();
+      return;
+    }
+    img.src = next;
+  };
+
   function bookmarkList(items, opts) {
     const o = opts || {};
     const q = o.q ? o.q.toLowerCase() : '';
@@ -302,7 +319,7 @@
       // 先显示首字母；网站图标如果能加载出来就盖在上面，加载失败就自动移除
       const badge = `<span class="b-badge"><span class="b-letter">${esc(letter)}</span>${
         host
-          ? `<img class="b-fav" src="https://${esc(host)}/favicon.ico" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onload="this.classList.add('ok')" onerror="this.remove()">`
+          ? `<img class="b-fav" src="https://${esc(host)}/favicon.ico" data-h="${esc(host)}" data-step="0" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onload="this.classList.add('ok')" onerror="favFallback(this)">`
           : ''
       }</span>`;
       const edit = `<button class="b-edit" type="button" data-edit="${esc(it.id)}" aria-label="编辑">
