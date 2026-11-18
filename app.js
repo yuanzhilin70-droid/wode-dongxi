@@ -375,16 +375,32 @@
   }
 
   function shareSelected() {
-    const n = state.sel.size;
+    const items = [...state.sel].map((id) => state.items[id]).filter(Boolean);
+    const n = items.length;
     if (!n) return;
+
+    // 只选了一条：用系统标准的「分享链接」方式，微信/QQ 会认成可点击的链接
+    if (n === 1) {
+      const it = items[0];
+      const label = it.title || hostOf(it.url) || '(没有标题)';
+      const payload = it.url ? { title: label, url: it.url } : { title: label, text: label };
+      if (navigator.share) {
+        navigator
+          .share(payload)
+          .then(() => toast('已分享'))
+          .catch(() => {});
+        return;
+      }
+      copyText(it.url || label).then((ok) => toast(ok ? '已复制链接' : '这台设备不支持分享'));
+      return;
+    }
+
     const text = selectedText();
     if (navigator.share) {
       navigator
         .share({ title: '我的东西', text })
         .then(() => toast(`已分享 ${n} 条`))
-        .catch(() => {
-          /* 用户取消就算了 */
-        });
+        .catch(() => {});
       return;
     }
     copyText(text).then((ok) => toast(ok ? `已复制 ${n} 条，去粘贴吧` : '这台设备不支持分享'));
