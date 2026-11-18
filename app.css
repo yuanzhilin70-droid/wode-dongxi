@@ -999,3 +999,94 @@ mark {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ---------------------------------------------------------------- 多选 */
+
+.sel-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.sel-btn {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 15px;
+}
+
+.sel-btn:active { background: var(--surface-2); }
+
+.sel-count {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.sel-dot {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  color: transparent;
+  font-size: 12px;
+  line-height: 1;
+  transition: background .12s, border-color .12s;
+}
+
+.bookmark.on .sel-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.bookmark.selecting { padding-left: 12px; }
+.bookmark.selecting .b-main { pointer-events: none; }
+
+.sel-actions {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + var(--safe-b));
+  z-index: 40;
+  display: flex;
+  gap: 8px;
+  width: min(560px, calc(100% - 32px));
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 16px 40px -18px rgba(60, 40, 20, .4);
+  transform: translateX(-50%);
+}
+
+.sel-actions button {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 14.5px;
+}
+
+.sel-actions button.danger {
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  color: var(--bad);
+}
+
+.sel-actions button:active { opacity: .7; }
+
+.list.selecting { padding-bottom: 72px; }

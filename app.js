@@ -27,6 +27,11 @@
     catList: $('#cat-list'),
     menu: $('#menu'),
     menuStat: $('#menu-stat'),
+    selBar: $('#sel-bar'),
+    selCount: $('#sel-count'),
+    selActions: $('#sel-actions'),
+    moveSheet: $('#move'),
+    moveList: $('#move-list'),
     importFile: $('#import-file'),
     bookmarksFile: $('#bookmarks-file'),
     toast: $('#toast'),
@@ -40,6 +45,8 @@
     editingId: null,
     sheetOpen: null,
     offline: false,
+    selMode: false,
+    sel: new Set(),
   };
 
   let snapshot = '';
@@ -250,6 +257,137 @@
     if (state.query.trim()) renderSearch();
     else renderFolders();
     renderCatList();
+    syncSelUI();
+  }
+
+  /* ------------------------------------------------------------ 多选 */
+
+  function syncSelUI() {
+    const on = state.selMode;
+    el.selBar.hidden = !on;
+    el.selActions.hidden = !on || state.sel.size === 0;
+    el.fab.hidden = on;
+    el.list.classList.toggle('selecting', on);
+    if (on) el.selCount.textContent = `已选 ${state.sel.size} 条`;
+  }
+
+  function enterSelect(id) {
+    if (state.selMode) return;
+    state.selMode = true;
+    state.sel = new Set(id ? [id] : []);
+    pushBackLayer();
+    renderAll();
+  }
+
+  function exitSelect() {
+    if (suppressPop === 0) popBackLayer();
+    state.selMode = false;
+    state.sel = new Set();
+    renderAll();
+  }
+
+  function toggleSel(id) {
+    if (state.sel.has(id)) state.sel.delete(id);
+    else state.sel.add(id);
+    renderAll();
+  }
+
+  function selectAllVisible() {
+    const q = state.query.trim().toLowerCase();
+    const ids = q
+      ? allItems().filter((it) => matchesQuery(it, q)).map((it) => it.id)
+      : allItems().map((it) => it.id);
+    for (const id of ids) state.sel.add(id);
+    renderAll();
+  }
+
+  function moveSelected(cat) {
+    const n = state.sel.size;
+    const now = Date.now();
+    for (const id of state.sel) {
+      const it = state.items[id];
+      if (!it) continue;
+      state.items[id] = { ...it, cat, updatedAt: now };
+    }
+    saveStore();
+    exitSelect();
+    toast(`已把 ${n} 条移到「${cat || '未分类'}」`);
+  }
+
+  function deleteSelected() {
+    const n = state.sel.size;
+    if (!n) return;
+    if (!window.confirm(`删除选中的 ${n} 条？删了就找不回来了。`)) return;
+    const now = Date.now();
+    for (const id of state.sel) {
+      delete state.items[id];
+      state.deleted[id] = now;
+    }
+    saveStore();
+    exitSelect();
+    toast(`已删除 ${n} 条`);
+  }
+
+  function renderMoveList() {
+    const rows = orderedFolders()
+      .map((n) => `<button class="menu-item" type="button" data-move-to="${esc(n)}"><span>${esc(n)}</span></button>`)
+      .join('');
+    el.moveList.innerHTML =
+      rows +
+      `<button class="menu-item" type="button" data-move-to=""><span>未分类</span><small>从文件夹里拿出来</small></button>
+       <button class="menu-item" type="button" data-move-new="1"><span>＋ 新建文件夹…</span></button>`;
+  }
+
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      /* 再试下一种 */
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** 把选中的条目拼成一段可分享的文字：标题 + 换行 + 网址 */
+  function selectedText() {
+    return [...state.sel]
+      .map((id) => state.items[id])
+      .filter(Boolean)
+      .map((it) => {
+        const label = it.title || hostOf(it.url) || '(没有标题)';
+        return it.url ? `${label}\n${it.url}` : label;
+      })
+      .join('\n\n');
+  }
+
+  function shareSelected() {
+    const n = state.sel.size;
+    if (!n) return;
+    const text = selectedText();
+    if (navigator.share) {
+      navigator
+        .share({ title: '我的东西', text })
+        .then(() => toast(`已分享 ${n} 条`))
+        .catch(() => {
+          /* 用户取消就算了 */
+        });
+      return;
+    }
+    copyText(text).then((ok) => toast(ok ? `已复制 ${n} 条，去粘贴吧` : '这台设备不支持分享'));
   }
 
   const FOLDER_ICON =
@@ -330,7 +468,13 @@
       const main = it.url
         ? `<a class="b-main" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="${esc(it.url)}">${badge}<span class="b-title">${titleHtml}</span></a>`
         : `<button class="b-main" type="button" data-id="${esc(it.id)}">${badge}<span class="b-title">${titleHtml}</span></button>`;
-      return `<div class="bookmark">${main}${cat}${edit}</div>`;
+      if (state.selMode) {
+        const on = state.sel.has(it.id);
+        return `<div class="bookmark selecting${on ? ' on' : ''}" data-id="${esc(it.id)}">
+          <span class="sel-dot">${on ? '✓' : ''}</span>${main}${cat}
+        </div>`;
+      }
+      return `<div class="bookmark" data-id="${esc(it.id)}">${main}${cat}${edit}</div>`;
     });
     return `<div class="folder-items">${rows.join('')}</div>`;
   }
@@ -405,19 +549,78 @@
     return !el.editor.hidden || !el.menu.hidden;
   }
 
+  /* ---- 让安卓返回键先关面板，而不是直接退出 App ---- */
+
+  let backLayers = 0;
+  let ignorePop = 0;
+  let suppressPop = 0;
+
+  function pushBackLayer() {
+    backLayers += 1;
+    try {
+      history.pushState({ backLayer: backLayers }, '');
+    } catch {
+      backLayers -= 1;
+    }
+  }
+
+  function popBackLayer() {
+    if (backLayers <= 0) return;
+    backLayers -= 1;
+    ignorePop += 1;
+    try {
+      history.back();
+    } catch {
+      ignorePop -= 1;
+    }
+  }
+
+  function closeTopLayer() {
+    const open = (s) => s && !s.hidden && !s.dataset.closing;
+    suppressPop += 1;
+    try {
+      if (open(el.menu)) return closeSheet(el.menu);
+      if (open(el.moveSheet)) return closeSheet(el.moveSheet);
+      if (open(el.editor)) {
+        state.editingId = null;
+        return closeSheet(el.editor);
+      }
+      if (state.selMode) return exitSelect();
+    } finally {
+      suppressPop -= 1;
+    }
+  }
+
+  window.addEventListener('popstate', () => {
+    if (ignorePop > 0) {
+      ignorePop -= 1;
+      return;
+    }
+    backLayers = Math.max(0, backLayers - 1);
+    closeTopLayer();
+  });
+
   function openSheet(sheet) {
     sheet.hidden = false;
     // 先渲染一帧再加 class，才会有滑入动画
     requestAnimationFrame(() => sheet.classList.add('open'));
     document.body.style.overflow = 'hidden';
     state.sheetOpen = sheet;
+    pushBackLayer();
   }
 
   function closeSheet(sheet, done) {
+    if (sheet.hidden) {
+      if (done) done();
+      return;
+    }
+    if (suppressPop === 0) popBackLayer();
+    sheet.dataset.closing = '1';
     sheet.classList.remove('open');
     document.body.style.overflow = '';
     window.setTimeout(() => {
       if (!sheet.classList.contains('open')) sheet.hidden = true;
+      delete sheet.dataset.closing;
       state.sheetOpen = null;
       if (done) done();
     }, 300);
@@ -926,6 +1129,15 @@
   });
 
   el.list.addEventListener('click', (e) => {
+    if (state.selMode) {
+      const row = e.target.closest('.bookmark');
+      if (row) {
+        e.preventDefault();
+        toggleSel(row.dataset.id);
+        return;
+      }
+      return; // 多选时点文件夹不展开
+    }
     if (e.target.closest('[data-new-folder]')) {
       createFolder();
       return;
@@ -966,6 +1178,89 @@
     }
     renderFolders();
   }
+
+  /* ---- 长按进入多选 ---- */
+
+  let pressTimer = 0;
+  let pressFrom = null;
+
+  function cancelPress() {
+    if (pressTimer) {
+      window.clearTimeout(pressTimer);
+      pressTimer = 0;
+    }
+  }
+
+  el.list.addEventListener('pointerdown', (e) => {
+    if (state.selMode) return;
+    const row = e.target.closest('.bookmark');
+    if (!row) return;
+    pressFrom = { x: e.clientX, y: e.clientY };
+    cancelPress();
+    pressTimer = window.setTimeout(() => {
+      pressTimer = 0;
+      enterSelect(row.dataset.id);
+    }, 450);
+  });
+
+  el.list.addEventListener('pointermove', (e) => {
+    if (!pressTimer || !pressFrom) return;
+    if (Math.abs(e.clientX - pressFrom.x) > 10 || Math.abs(e.clientY - pressFrom.y) > 10) cancelPress();
+  });
+
+  el.list.addEventListener('pointerup', cancelPress);
+  el.list.addEventListener('pointercancel', cancelPress);
+  el.list.addEventListener('pointerleave', cancelPress);
+
+  // 安卓/桌面长按链接会弹系统菜单，这里拦下来改用多选
+  el.list.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.bookmark');
+    if (!row || state.selMode) return;
+    e.preventDefault();
+    cancelPress();
+    enterSelect(row.dataset.id);
+  });
+
+  el.selBar.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-sel]');
+    if (!act) return;
+    if (act.dataset.sel === 'cancel') exitSelect();
+    if (act.dataset.sel === 'all') selectAllVisible();
+  });
+
+  el.selActions.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-sel]');
+    if (!act) return;
+    if (act.dataset.sel === 'share') shareSelected();
+    if (act.dataset.sel === 'move') {
+      renderMoveList();
+      openSheet(el.moveSheet);
+    }
+    if (act.dataset.sel === 'del') deleteSelected();
+  });
+
+  el.moveList.addEventListener('click', (e) => {
+    const to = e.target.closest('[data-move-to]');
+    if (to) {
+      closeSheet(el.moveSheet);
+      moveSelected(to.dataset.moveTo);
+      return;
+    }
+    if (e.target.closest('[data-move-new]')) {
+      const name = (window.prompt('新文件夹的名字') || '').trim();
+      if (!name) return;
+      if (!state.folders.includes(name)) {
+        state.folders.push(name);
+        saveFolders();
+      }
+      closeSheet(el.moveSheet);
+      moveSelected(name);
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.selMode) exitSelect();
+  });
 
   function saveOrderFromDom() {
     const names = [...el.list.querySelectorAll('.folder-group')]

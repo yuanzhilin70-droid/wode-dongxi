@@ -34,7 +34,19 @@
     <button id="q-clear" class="q-clear" type="button" aria-label="清空" hidden>×</button>
   </div>
 
+  <div id="sel-bar" class="sel-bar" hidden>
+    <button type="button" class="sel-btn" data-sel="cancel">取消</button>
+    <span id="sel-count" class="sel-count">已选 0 条</span>
+    <button type="button" class="sel-btn" data-sel="all">全选</button>
+  </div>
+
   <main id="list" class="list" aria-live="polite"></main>
+
+  <div id="sel-actions" class="sel-actions" hidden>
+    <button type="button" data-sel="share">分享</button>
+    <button type="button" data-sel="move">移动</button>
+    <button type="button" data-sel="del" class="danger">删除</button>
+  </div>
 
   <button id="fab" class="fab" type="button" aria-label="新建记录">
     <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
@@ -104,6 +116,18 @@
     <p class="hint">数据存在电脑上的 notes-app/data/notes.json，随时可以复制走。</p>
     <input id="import-file" type="file" accept="application/json,.json" hidden>
     <input id="bookmarks-file" type="file" accept=".html,text/html" hidden>
+  </div>
+</div>
+
+<!-- 移动到文件夹 -->
+<div id="move" class="sheet menu-sheet" hidden aria-modal="true" role="dialog">
+  <div class="sheet-head">
+    <button type="button" class="text-btn" data-move="close">取消</button>
+    <span class="sheet-title">移动到</span>
+    <span style="width:44px"></span>
+  </div>
+  <div class="sheet-body menu-body">
+    <div id="move-list"></div>
   </div>
 </div>
 
