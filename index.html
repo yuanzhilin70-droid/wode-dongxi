@@ -107,6 +107,9 @@
     <button class="menu-item" type="button" data-act="import-bookmarks">
       <span>导入浏览器书签</span><small>选 Chrome 导出的 bookmarks.html</small>
     </button>
+    <button class="menu-item" type="button" data-act="import-text">
+      <span>从文本文件导入链接</span><small>txt / 文档里散落的网址都能抠出来</small>
+    </button>
     <button class="menu-item" type="button" data-act="sync">
       <span>立即同步</span><small>和电脑那边对一下</small>
     </button>
@@ -116,6 +119,7 @@
     <p class="hint">数据存在电脑上的 notes-app/data/notes.json，随时可以复制走。</p>
     <input id="import-file" type="file" accept="application/json,.json" hidden>
     <input id="bookmarks-file" type="file" accept=".html,text/html" hidden>
+    <input id="text-file" type="file" accept=".txt,text/plain,text/*" hidden>
   </div>
 </div>
 

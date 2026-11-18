@@ -34,6 +34,7 @@
     moveList: $('#move-list'),
     importFile: $('#import-file'),
     bookmarksFile: $('#bookmarks-file'),
+    textFile: $('#text-file'),
     toast: $('#toast'),
   };
 
@@ -1132,6 +1133,76 @@
     reader.readAsText(file, 'utf-8');
   }
 
+  /* ------------------------------------------------------------ 文本里的链接 */
+
+  /** 从一段文字里抠出所有网址；同一行里网址前面的文字当标题 */
+  function parseTextLinks(text) {
+    const out = [];
+    const seen = new Set();
+    for (const rawLine of String(text).split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const found = line.match(/https?:\/\/[^\s"'<>]+/gi);
+      if (!found) continue;
+      const rest = line
+        .replace(found[0], '')
+        .replace(/[\s\-—–·:：|,，。;；]+/g, ' ')
+        .trim();
+      for (const hit of found) {
+        const url = hit.replace(/[),.;!?]+$/, '');
+        const key = url.replace(/\/$/, '');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ url, title: found.length === 1 ? rest : '' });
+      }
+    }
+    return out;
+  }
+
+  function importTextLinks(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const links = parseTextLinks(String(reader.result || ''));
+      if (!links.length) return toast('这个文件里没找到网址');
+      const seen = new Set(
+        Object.values(state.items)
+          .map((i) => (i.url || '').replace(/\/$/, ''))
+          .filter(Boolean)
+      );
+      const now = Date.now();
+      let added = 0;
+      let skipped = 0;
+      for (const link of links) {
+        const key = link.url.replace(/\/$/, '');
+        if (seen.has(key)) {
+          skipped += 1;
+          continue;
+        }
+        seen.add(key);
+        const id = newId();
+        state.items[id] = {
+          id,
+          title: link.title || hostOf(link.url),
+          body: '',
+          url: link.url,
+          cat: '',
+          tags: [],
+          pinned: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        added += 1;
+      }
+      saveStore();
+      renderAll();
+      closeSheet(el.menu);
+      toast(
+        added ? `导入 ${added} 个链接${skipped ? `，跳过 ${skipped} 个重复的` : ''}` : '这些链接都已经在里面了'
+      );
+    };
+    reader.readAsText(file, 'utf-8');
+  }
+
   /* ------------------------------------------------------------ 事件 */
 
   el.fab.addEventListener('click', () => openEditor(null));
@@ -1379,6 +1450,7 @@
     if (name === 'export-bookmarks') exportBookmarksHtml();
     if (name === 'import') el.importFile.click();
     if (name === 'import-bookmarks' && el.bookmarksFile) el.bookmarksFile.click();
+    if (name === 'import-text' && el.textFile) el.textFile.click();
     if (name === 'sync') {
       syncNow();
       toast('正在同步…');
@@ -1407,6 +1479,14 @@
       const f = el.bookmarksFile.files && el.bookmarksFile.files[0];
       if (f) importBookmarks(f);
       el.bookmarksFile.value = '';
+    });
+  }
+
+  if (el.textFile) {
+    el.textFile.addEventListener('change', () => {
+      const f = el.textFile.files && el.textFile.files[0];
+      if (f) importTextLinks(f);
+      el.textFile.value = '';
     });
   }
 
